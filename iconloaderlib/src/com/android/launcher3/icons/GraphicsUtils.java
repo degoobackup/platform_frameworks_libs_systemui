@@ -25,6 +25,7 @@ import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Path;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.Region;
 import android.graphics.RegionIterator;
 import android.graphics.drawable.AdaptiveIconDrawable;
@@ -33,6 +34,7 @@ import android.util.Log;
 
 import androidx.annotation.ColorInt;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.core.graphics.PathParser;
 
 import java.io.ByteArrayOutputStream;
@@ -108,8 +110,7 @@ public class GraphicsUtils {
      */
     public static Path getShapePath(@NonNull Context context, int size) {
         if (IconProvider.CONFIG_ICON_MASK_RES_ID != Resources.ID_NULL) {
-            Path path = PathParser.createPathFromPathData(
-                    context.getString(IconProvider.CONFIG_ICON_MASK_RES_ID));
+            Path path = parseIconMask(context.getString(IconProvider.CONFIG_ICON_MASK_RES_ID));
             if (path != null) {
                 if (size != MASK_SIZE) {
                     Matrix m = new Matrix();
@@ -124,6 +125,33 @@ public class GraphicsUtils {
                 new ColorDrawable(Color.BLACK), new ColorDrawable(Color.BLACK));
         drawable.setBounds(0, 0, size, size);
         return new Path(drawable.getIconMask());
+    }
+
+    /**
+     * Parses the system icon mask, or returns null when it is malformed. Some OEM builds put a
+     * newline inside the path data, and PathParser does not accept a newline as a separator.
+     */
+    @Nullable
+    private static Path parseIconMask(String pathData) {
+        try {
+            Path path = PathParser.createPathFromPathData(
+                    pathData.replaceAll("\\s+", " ").trim());
+            if (path == null) {
+                return null;
+            }
+            // A mask far outside its 100x100 box means the data was misread. Do not use it.
+            RectF bounds = new RectF();
+            path.computeBounds(bounds, true);
+            if (bounds.left < -MASK_SIZE || bounds.top < -MASK_SIZE
+                    || bounds.right > 2 * MASK_SIZE || bounds.bottom > 2 * MASK_SIZE) {
+                Log.w(TAG, "Icon mask out of bounds " + bounds + ": " + pathData);
+                return null;
+            }
+            return path;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Could not parse icon mask: " + pathData, e);
+            return null;
+        }
     }
 
     /**
